@@ -3,7 +3,7 @@ An example how statistics can be collected during SAP HANA load tests
 ---
 
 ### DESCRIPTION:  
-The SAP HANA collector is procedure that shows how statistics can be collected during SAP HANA load tests.
+The SAP HANA collector is a procedure that shows how statistics can be collected during SAP HANA load tests.
 
 
 ### DISCLAIMER:  
