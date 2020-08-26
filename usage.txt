@@ -1,0 +1,29 @@
+
+
+As user COLLECTOR with system privileges CATALOG READ, CREATE SCHEMA, and EXPORT
+
+- Open hanacollector_ini.sql and execute it
+	--> A schema STAT_COLL with a procedure COLLECT_STATISTICS_FROM_LOAD_TEST and tables
+	    LOAD_TESTS, STAT_COLL_EXPLAIN_PLANS, STAT_COLL_LOAD_HISTORY_HOST, STAT_COLL_LOAD_HISTORY_SERVICE,
+	    STAT_COLL_SERVICE_THREAD_SAMPLES, and STAT_COLL_SQL_PLAN_STATISTICS was created
+
+- Before each load test
+	- open hanacollector_before_load_test.sql
+	- change the load test name (here we will keep the name LOAD_TEST_2020_11_11_XX)
+	- execute
+		--> The two views M_SQL_PLAN_STATISTICS_RESET and M_SQL_PLAN_CACHE_RESET have been reset
+		--> An entry have been added in the "STAT_COLL"."LOAD_TESTS" for the new test (here LOAD_TEST_2020_11_11_XX)
+
+- Let's asume load test LOAD_TEST_2020_11_11_XX were being executed between 26.08.2020 08:00 and 26.08.2020 08:30
+
+- After each load test
+	- open hanacollector_after_load_test.sql
+	- change the load test name and start and stop time, depending on what start/stop time option you choose
+	  (here we keep 'LOAD_TEST_2020_11_11_XX', '26.08.2020 08:00:00.000000', '26.08.2020 08:30.00.00000')
+	- execute
+		--> the collector tables in schema STAT_COLL has been filled with statistics from load test LOAD_TEST_2020_11_11_XX
+		    (this can be checked with the commented out select statements)
+
+- When enough load tests have been executed and enough statistics from all those load tests have been collected
+	- open hanacollector_export.sql
+	- follow the instructions  (maybe in the future we will manage to make this SQL also)
