@@ -1,8 +1,13 @@
 
 -- Export all statistics collections after all load tests
 
--- Investigation is ongoing to figure out if it is possible to export to current client via an SQL command
--- If not:
+-- Experts have answered that export to the client side is not supported via plain SQL. It is only offered 
+-- by the HANA tooling (HANA Studio, HANA Database Explorer). The way it works is that the tool executes a 
+-- EXPORT statement which writes the export data into a temporary table on the HANA server. The tool then 
+-- reads the data from this table, creates an archive file from it, and sends it to the user who can then 
+-- choose what to do with this file.
+
+-- Therefore there will be no SQL statements for the export. We must follow this procedure instead:
 -- * Select all tables and right click on the tables in the navigation bar in HANA Studio
 -- * Export
 -- * Next
@@ -28,9 +33,3 @@
 --   --> There is now a schema STAT_COLL in your target system with the tables
 --	     LOAD_TESTS, STAT_COLL_EXPLAIN_PLANS, STAT_COLL_LOAD_HISTORY_HOST, STAT_COLL_LOAD_HISTORY_SERVICE,
 --       STAT_COLL_SERVICE_THREAD_SAMPLES, and STAT_COLL_SQL_PLAN_STATISTICS
-
- 
--- Under Investigation:
---
--- EXPORT "STAT_COLL"."*" INTO '/tmp' WITH REPLACE;
--- EXPORT "STAT_COLL"."TAB1" AS BINARY INTO #CLIENT_EXPORT_1598436297640 WITH NO DEPENDENCIES
