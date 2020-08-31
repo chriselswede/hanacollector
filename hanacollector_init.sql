@@ -59,7 +59,7 @@ BEGIN
     -- Collect the Execution Plans of the 100 (currently 17) most "expensive" w.r.t. average execution time and 100 (currently 17) most "expensive" w.r.t. total execution time from the Reset SQL Plan Cache
 	-- Note1: they must be of such SQL statements that support explain plan
 	-- Note2: here we cannot user M_SLQ_PLAN_STATISTICS, some plan ids are invalid
-	DECLARE all_statements TABLE(PLAN_ID BIGINT, STATEMENT_STRING NCLOB, STATEMENT_HASH VARCHAR(32), AVG_EXECUTION_TIME BIGINT, TOTAL_EXECUTION_TIME BIGINT) = select PLAN_ID, STATEMENT_STRING, STATEMENT_HASH, AVG_EXECUTION_TIME, TOTAL_EXECUTION_TIME from "SYS"."M_SQL_PLAN_STATISTICS_RESET" 
+	DECLARE all_statements TABLE(PLAN_ID BIGINT, STATEMENT_STRING NCLOB, STATEMENT_HASH VARCHAR(32), AVG_EXECUTION_TIME BIGINT, TOTAL_EXECUTION_TIME BIGINT) = select PLAN_ID, STATEMENT_STRING, STATEMENT_HASH, AVG_EXECUTION_TIME, TOTAL_EXECUTION_TIME from "SYS"."M_SQL_PLAN_CACHE_RESET"  
              where STATEMENT_STRING like 'INSERT%' 
              or STATEMENT_STRING like 'UPDATE%' 
              or STATEMENT_STRING like 'DELETE%' 
@@ -67,14 +67,13 @@ BEGIN
              or STATEMENT_STRING like 'UPSERT%' 
              or STATEMENT_STRING like 'MERGE INTO%' 
              or STATEMENT_STRING like 'SELECT%';
-	DECLARE avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 17 PLAN_ID, STATEMENT_HASH from :all_statements order by avg_execution_time desc;
-	DECLARE totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 17 PLAN_ID, STATEMENT_HASH from :all_statements order by total_execution_time desc;
+	DECLARE avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 20 PLAN_ID, STATEMENT_HASH from :all_statements order by avg_execution_time desc;
+	DECLARE totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 20 PLAN_ID, STATEMENT_HASH from :all_statements order by total_execution_time desc;
 	DECLARE unionsel TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select * from :avgdesc union select * from :totdesc;        
 	DECLARE CURSOR cur FOR select * from :unionsel;
     DECLARE plan_id_str VARCHAR(100);
     DECLARE sql_hash VARCHAR(32);
-    --DECLARE CONTINUE HANDLER FOR SQL_ERROR_CODE 428 SELECT ::SQL_ERROR_CODE, ::SQL_ERROR_MESSAGE FROM DUMMY;        -- to catch when EXPLAIN PLAN SET gets an "invalid" plan-id
-	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SELECT ::SQL_ERROR_CODE, ::SQL_ERROR_MESSAGE FROM DUMMY;
+    DECLARE CONTINUE HANDLER FOR SQL_ERROR_CODE 428 SELECT ::SQL_ERROR_CODE, ::SQL_ERROR_MESSAGE FROM DUMMY;        -- to catch when EXPLAIN PLAN SET gets an "invalid" plan-id
     FOR cur_row AS cur DO
        plan_id_str := CAST(:cur_row.PLAN_ID AS VARCHAR);     
        sql_hash := cur_row.STATEMENT_HASH;                     -- select :plan_id_str, :sql_hash from dummy;
