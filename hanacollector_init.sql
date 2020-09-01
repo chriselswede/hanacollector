@@ -51,14 +51,14 @@ create column table "STAT_COLL"."LOAD_TESTS"(TEST_ID VARCHAR(100), START_TIME DA
 -- 2. The collect statistics procedure gets a start and stop time as input variables (then application team must provide 
 --    test time ranges manually). It is also possible to run the procedure with only the start time or only the stop time.
 DROP PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST";
-CREATE PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST"(IN ID VARCHAR(100), IN START_TIME_IN DATETIME DEFAULT NULL, IN STOP_TIME_IN DATETIME DEFAULT NULL)
+CREATE PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST"(IN ID VARCHAR(100), IN START_TIME_IN DATETIME DEFAULT NULL, IN STOP_TIME_IN DATETIME DEFAULT NULL, IN SAPSCHEMA VARCHAR(100))
 LANGUAGE SQLSCRIPT
 SQL SECURITY DEFINER
 AS
 BEGIN
-    -- Collect the Execution Plans of the 100 (currently 17) most "expensive" w.r.t. average execution time and 100 (currently 17) most "expensive" w.r.t. total execution time from the Reset SQL Plan Cache
-	-- Note1: they must be of such SQL statements that support explain plan
-	-- Note2: here we cannot user M_SLQ_PLAN_STATISTICS, some plan ids are invalid
+    -- Collect the Execution Plans of the 100 most "expensive" w.r.t. average execution time and 100 most "expensive" w.r.t. total execution time from the Reset SQL Plan Cache
+	-- Note1: they must be of such SQL statements that support explain plan (see the where cluase below)
+	-- Note2: here we cannot user M_SLQ_PLAN_STATISTICS_RESET, some plan ids are invalid, so we use M_SQL_PLAN_CACHE_RESET
 	DECLARE all_statements TABLE(PLAN_ID BIGINT, STATEMENT_STRING NCLOB, STATEMENT_HASH VARCHAR(32), AVG_EXECUTION_TIME BIGINT, TOTAL_EXECUTION_TIME BIGINT) = select PLAN_ID, STATEMENT_STRING, STATEMENT_HASH, AVG_EXECUTION_TIME, TOTAL_EXECUTION_TIME from "SYS"."M_SQL_PLAN_CACHE_RESET"  
              where STATEMENT_STRING like 'INSERT%' 
              or STATEMENT_STRING like 'UPDATE%' 
@@ -67,8 +67,8 @@ BEGIN
              or STATEMENT_STRING like 'UPSERT%' 
              or STATEMENT_STRING like 'MERGE INTO%' 
              or STATEMENT_STRING like 'SELECT%';
-	DECLARE avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 20 PLAN_ID, STATEMENT_HASH from :all_statements order by avg_execution_time desc;
-	DECLARE totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 20 PLAN_ID, STATEMENT_HASH from :all_statements order by total_execution_time desc;
+	DECLARE avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 100 PLAN_ID, STATEMENT_HASH from :all_statements order by avg_execution_time desc;
+	DECLARE totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 100 PLAN_ID, STATEMENT_HASH from :all_statements order by total_execution_time desc;
 	DECLARE unionsel TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select * from :avgdesc union select * from :totdesc;        
 	DECLARE CURSOR cur FOR select * from :unionsel;
     DECLARE plan_id_str VARCHAR(100);
@@ -78,14 +78,15 @@ BEGIN
        plan_id_str := CAST(:cur_row.PLAN_ID AS VARCHAR);     
        sql_hash := cur_row.STATEMENT_HASH;                     -- select :plan_id_str, :sql_hash from dummy;
        delete from sys.explain_plan_table where statement_name = :plan_id_str;
-       EXEC 'EXPLAIN PLAN SET STATEMENT_NAME = '''||plan_id_str||''' FOR SQL PLAN CACHE ENTRY '||plan_id_str||' ';  -- it happens that the plan-id is "invalid", then the CONTINUE HANDLER
-       INSERT INTO "STAT_COLL"."STAT_COLL_EXPLAIN_PLANS" SELECT *, :ID as "LOAD_ID", :sql_hash as "STATEMENT_HASH"  -- will give a warning and the EXPLAIN PLAN SET will not be done, and  
-             FROM sys.explain_plan_table WHERE statement_name = :plan_id_str;                                       -- this INSERT INTO will not insert anything since that plan id is not there
+       EXEC 'EXPLAIN PLAN SET STATEMENT_NAME = '''||plan_id_str||''' FOR SQL PLAN CACHE ENTRY '||plan_id_str||' ';  -- if it would happen that plan-id is "invalid", then the CONTINUE HANDLER
+       INSERT INTO "STAT_COLL"."STAT_COLL_EXPLAIN_PLANS" SELECT *, :ID as "LOAD_ID", :sql_hash as "STATEMENT_HASH"  -- will give a warning and the EXPLAIN PLAN SET will not be done, and this 
+             FROM sys.explain_plan_table WHERE statement_name = :plan_id_str;                                       -- INSERT INTO will not insert anything since that plan id is not there
     END FOR;
     -- Collect all statistics from the SQL Plan Cache since the reset 
     INSERT INTO "STAT_COLL"."STAT_COLL_SQL_PLAN_STATISTICS" SELECT TOP 1000 *, :ID AS "LOAD_ID"
        FROM "SYS"."M_SQL_PLAN_STATISTICS_RESET"  
-       WHERE SCHEMA_NAME = 'SAPQH1' AND IS_INTERNAL = 'FALSE'  -- Change SAPQH1 --> SAP<SID> or similar and add   AND RESET_TIME IS NOT NULL  TODO:input parameter
+       --WHERE SCHEMA_NAME = 'SAPQH1' AND IS_INTERNAL = 'FALSE'  -- Change SAPQH1 --> SAP<SID> or similar and add   AND RESET_TIME IS NOT NULL  TODO:input parameter
+	   WHERE SCHEMA_NAME = :SAPSCHEMA AND IS_INTERNAL = 'FALSE'  -- add     AND RESET_TIME IS NOT NULL       TODO:input parameter
        ORDER BY TOTAL_EXECUTION_TIME;
     -- If start time is not defined as an input parameter, get the start time from the LOAD_TESTS table for this test
     IF (:START_TIME_IN is NULL) THEN
