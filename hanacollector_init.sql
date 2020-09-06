@@ -56,10 +56,9 @@ LANGUAGE SQLSCRIPT
 SQL SECURITY DEFINER
 AS
 BEGIN
-    -- Collect the Execution Plans of the 100 most "expensive" w.r.t. average execution time and 100 most "expensive" w.r.t. total execution time from the Reset SQL Plan Cache
-	-- Note1: they must be of such SQL statements that support explain plan (see the where cluase below)
-	-- Note2: here we cannot user M_SLQ_PLAN_STATISTICS_RESET, some plan ids are invalid, so we use M_SQL_PLAN_CACHE_RESET
-	DECLARE all_statements TABLE(PLAN_ID BIGINT, STATEMENT_STRING NCLOB, STATEMENT_HASH VARCHAR(32), AVG_EXECUTION_TIME BIGINT, TOTAL_EXECUTION_TIME BIGINT) = select PLAN_ID, STATEMENT_STRING, STATEMENT_HASH, AVG_EXECUTION_TIME, TOTAL_EXECUTION_TIME from "SYS"."M_SQL_PLAN_CACHE_RESET"  
+    -- Collect the Execution Plans of the 1000 most "expensive" w.r.t. average execution time and 1000 most "expensive" w.r.t. total execution time from the Reset of SQL Plan Cache Statistics
+	-- Note: they must be of such SQL statements that support explain plan (see the where clause below)
+	DECLARE all_supported_ids TABLE(PLAN_ID BIGINT, AVG_EXECUTION_TIME BIGINT, TOTAL_EXECUTION_TIME BIGINT) = select PLAN_ID, AVG_EXECUTION_TIME, TOTAL_EXECUTION_TIME from "SYS"."M_SQL_PLAN_STATISTICS_RESET"  
              where STATEMENT_STRING like 'INSERT%' 
              or STATEMENT_STRING like 'UPDATE%' 
              or STATEMENT_STRING like 'DELETE%' 
@@ -67,13 +66,21 @@ BEGIN
              or STATEMENT_STRING like 'UPSERT%' 
              or STATEMENT_STRING like 'MERGE INTO%' 
              or STATEMENT_STRING like 'SELECT%';
-	DECLARE avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 100 PLAN_ID, STATEMENT_HASH from :all_statements order by avg_execution_time desc;
-	DECLARE totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select top 100 PLAN_ID, STATEMENT_HASH from :all_statements order by total_execution_time desc;
-	DECLARE unionsel TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32)) = select * from :avgdesc union select * from :totdesc;        
-	DECLARE CURSOR cur FOR select * from :unionsel;
+	DECLARE avgdesc      TABLE(PLAN_ID BIGINT, exec_time BIGINT) = select top 1000 PLAN_ID, avg_execution_time as exec_time from :all_supported_ids order by avg_execution_time desc;
+	DECLARE totdesc      TABLE(PLAN_ID BIGINT, exec_time BIGINT) = select top 1000 PLAN_ID, total_execution_time as exec_time from :all_supported_ids order by total_execution_time desc;
+	DECLARE unionsel     TABLE(PLAN_ID BIGINT, exec_time BIGINT) = select * from :avgdesc union select * from :totdesc;
+	-- Some plan ids of M_SLQ_PLAN_STATISTICS_RESET are invalid, so the Execution Plans cannot be created from them, therefore we pick out the 20 most "expensive" (wrt both average execution time and 
+	-- total exeuction time) valid ones by joining with M_SQL_PLAN_CACHE_RESET on plan_id because all plan ids in M_SQL_PLAN_CACHE_RESET are valid (in the same time we also collect the statement hash) 
+	DECLARE	new_union    TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32), exec_time BIGINT) = select b.plan_id, b.statement_hash, a.exec_time from :unionsel a join "SYS"."M_SQL_PLAN_CACHE_RESET" b on a.plan_id = b.plan_id;
+    DECLARE new_avgdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32), exec_time BIGINT) = select top 20 a.* from :new_union a join :avgdesc b on a.plan_id = b.plan_id order by b.exec_time desc;
+    DECLARE new_totdesc  TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32), exec_time BIGINT) = select top 20 a.* from :new_union a join :totdesc b on a.plan_id = b.plan_id order by b.exec_time desc;
+    DECLARE new_unionsel TABLE(PLAN_ID BIGINT, STATEMENT_HASH VARCHAR(32), exec_time BIGINT) = select * from :new_avgdesc union select * from :new_totdesc; 
+	-- Declare a cursor to be used to loop over the expensive statements to collect their Execution Plans, and declare variables and a continue handler just in case EXPLAIN PLAN SET anyway gets an "invalid" plan-id 	
+	DECLARE CURSOR cur FOR select * from :new_unionsel;
     DECLARE plan_id_str VARCHAR(100);
     DECLARE sql_hash VARCHAR(32);
-    DECLARE CONTINUE HANDLER FOR SQL_ERROR_CODE 428 SELECT ::SQL_ERROR_CODE, ::SQL_ERROR_MESSAGE FROM DUMMY;        -- to catch when EXPLAIN PLAN SET gets an "invalid" plan-id
+    DECLARE CONTINUE HANDLER FOR SQL_ERROR_CODE 428 SELECT ::SQL_ERROR_CODE, ::SQL_ERROR_MESSAGE FROM DUMMY;
+	-- Loop over the 20 + 20 "expensive" statements (that all have valid plan ids) and collect their Execution Plans
     FOR cur_row AS cur DO
        plan_id_str := CAST(:cur_row.PLAN_ID AS VARCHAR);     
        sql_hash := cur_row.STATEMENT_HASH;                     -- select :plan_id_str, :sql_hash from dummy;
@@ -82,12 +89,10 @@ BEGIN
        INSERT INTO "STAT_COLL"."STAT_COLL_EXPLAIN_PLANS" SELECT *, :ID as "LOAD_ID", :sql_hash as "STATEMENT_HASH"  -- will give a warning and the EXPLAIN PLAN SET will not be done, and this 
              FROM sys.explain_plan_table WHERE statement_name = :plan_id_str;                                       -- INSERT INTO will not insert anything since that plan id is not there
     END FOR;
-    -- Collect all statistics from the SQL Plan Cache since the reset 
-    INSERT INTO "STAT_COLL"."STAT_COLL_SQL_PLAN_STATISTICS" SELECT TOP 1000 *, :ID AS "LOAD_ID"
-       FROM "SYS"."M_SQL_PLAN_STATISTICS_RESET"  
-       --WHERE SCHEMA_NAME = 'SAPQH1' AND IS_INTERNAL = 'FALSE'  -- Change SAPQH1 --> SAP<SID> or similar and add   AND RESET_TIME IS NOT NULL  TODO:input parameter
-	   WHERE SCHEMA_NAME = :SAPSCHEMA AND IS_INTERNAL = 'FALSE'  -- add     AND RESET_TIME IS NOT NULL       TODO:input parameter
-       ORDER BY TOTAL_EXECUTION_TIME;
+    -- Collect statistics of the 1000 + 1000 "expensive" statements from the SQL Plan Statistics since the reset (some of them might have invalide plan ids) 
+    INSERT INTO "STAT_COLL"."STAT_COLL_SQL_PLAN_STATISTICS" SELECT  a.*, :ID AS "LOAD_ID"
+       FROM "SYS"."M_SQL_PLAN_STATISTICS_RESET" a join :unionsel b on a.plan_id = b.plan_id;
+       --WHERE SCHEMA_NAME = :SAPSCHEMA AND IS_INTERNAL = 'FALSE' ORDER BY TOTAL_EXECUTION_TIME;  --- add      AND RESET_TIME IS NOT NULL       TODO:input parameter	
     -- If start time is not defined as an input parameter, get the start time from the LOAD_TESTS table for this test
     IF (:START_TIME_IN is NULL) THEN
        select distinct START_TIME into START_TIME_IN from "STAT_COLL"."LOAD_TESTS" where TEST_ID = :ID;
