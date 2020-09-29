@@ -51,7 +51,7 @@ create column table "STAT_COLL"."LOAD_TESTS"(TEST_ID VARCHAR(100), START_TIME DA
 -- 2. The collect statistics procedure gets a start and stop time as input variables (then application team must provide 
 --    test time ranges manually). It is also possible to run the procedure with only the start time or only the stop time.
 DROP PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST";
-CREATE PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST"(IN ID VARCHAR(100), IN START_TIME_IN DATETIME DEFAULT NULL, IN STOP_TIME_IN DATETIME DEFAULT NULL, IN SAPSCHEMA VARCHAR(100))
+CREATE PROCEDURE "STAT_COLL"."COLLECT_STATISTICS_FROM_LOAD_TEST"(IN ID VARCHAR(100), IN START_TIME_IN DATETIME DEFAULT NULL, IN STOP_TIME_IN DATETIME DEFAULT NULL)
 LANGUAGE SQLSCRIPT
 SQL SECURITY DEFINER
 AS
@@ -91,8 +91,7 @@ BEGIN
     END FOR;
     -- Collect statistics of the 1000 + 1000 "expensive" statements from the SQL Plan Statistics since the reset (some of them might have invalide plan ids) 
     INSERT INTO "STAT_COLL"."STAT_COLL_SQL_PLAN_STATISTICS" SELECT  a.*, :ID AS "LOAD_ID"
-       FROM "SYS"."M_SQL_PLAN_STATISTICS_RESET" a join :unionsel b on a.plan_id = b.plan_id;
-       --WHERE SCHEMA_NAME = :SAPSCHEMA AND IS_INTERNAL = 'FALSE' ORDER BY TOTAL_EXECUTION_TIME;  --- add      AND RESET_TIME IS NOT NULL       TODO:input parameter	
+       FROM "SYS"."M_SQL_PLAN_STATISTICS_RESET" a join :unionsel b on a.plan_id = b.plan_id;	
     -- If start time is not defined as an input parameter, get the start time from the LOAD_TESTS table for this test
     IF (:START_TIME_IN is NULL) THEN
        select distinct START_TIME into START_TIME_IN from "STAT_COLL"."LOAD_TESTS" where TEST_ID = :ID;
