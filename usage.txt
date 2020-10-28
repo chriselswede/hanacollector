@@ -18,7 +18,8 @@ As user COLLECTOR with system privileges CATALOG READ, CREATE SCHEMA, and EXPORT
 
 - After each load test
 	- open hanacollector_after_load_test.sql
-	- change the load test name, start and stop time, depending on what start/stop time option you choose
+	- change the load test name (it is supposed to be identical with the TEST_ID you entered in the LOAD_TESTS table), 
+	  start and stop time, depending on what start/stop time option you choose
 	  (here we keep 'LOAD_TEST_2020_11_11_XX', '26.08.2020 08:00:00.000000', '26.08.2020 08:30.00.00000')
 	- execute
 		--> the collector tables in schema STAT_COLL has been filled with statistics from load test LOAD_TEST_2020_11_11_XX
